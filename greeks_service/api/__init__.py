@@ -1,0 +1,1 @@
+"""greeks-service FastAPI surface."""
