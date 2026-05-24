@@ -1,8 +1,8 @@
 """Configuration for greeks-service.
 
 Extends UnifiedCloudConfig (from unified-trading-library) for standardised configuration.
-Typed config class — required by QG STEP 5.34 (config_reloaders MUST consume a typed config,
-never bare ``object`` / ``getattr(service_config, ...)`` paths).
+Typed config class — required by QG STEP 5.34 (config_reloaders MUST consume a typed
+config class; dynamic attribute lookup on bare object is prohibited).
 
 SSOT: codex/06-coding-standards/config-reloader-pattern.md
 """
