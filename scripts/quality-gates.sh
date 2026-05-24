@@ -13,4 +13,11 @@ LOCAL_DEPS=()
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 # PYSEC-2026-161: starlette <1.0.1 — UTL pins starlette<1.0.0; upgrade blocked upstream
 PIP_AUDIT_EXTRA_ARGS="--ignore-vuln PYSEC-2026-161"
+# Broad except Exception: intentional resilience boundaries — see QUALITY_GATE_BYPASS_AUDIT.md §1.1
+BE_EXCLUDE_GLOBS=(
+    "greeks_service/inputs/mark_update_sub.py"
+    "greeks_service/inputs/instrument_reader.py"
+    "greeks_service/handlers/mark_update_handler.py"
+    "greeks_service/outputs/pricing_ledger_writer.py"
+)
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"

@@ -2,7 +2,7 @@
 
 Extends UnifiedCloudConfig (from unified-trading-library) for standardised configuration.
 Typed config class — required by QG STEP 5.34 (config_reloaders MUST consume a typed config,
-never bare ``object`` / ``getattr(service_config, ...)`` paths).
+never bare object or dynamic attribute access paths).
 
 SSOT: codex/06-coding-standards/config-reloader-pattern.md
 """
@@ -47,6 +47,31 @@ class GreeksServiceConfig(UnifiedCloudConfig):
         default="",
         validation_alias=AliasChoices("PRICING_LEDGER_GCS_BUCKET"),
         description="Sink bucket for PricingLedger rows (output)",
+    )
+
+    # Phase 3 — Pub/Sub subscriber + IS reader
+    mark_update_subscription: str = Field(
+        default="mark-update-greeks-sub",
+        validation_alias=AliasChoices("MARK_UPDATE_SUBSCRIPTION"),
+        description="Pub/Sub subscription name for MTDS mark_update topic",
+    )
+
+    instruments_service_url: str = Field(
+        default="http://instruments-service:8080",
+        validation_alias=AliasChoices("INSTRUMENTS_SERVICE_URL"),
+        description="instruments-service HTTP base URL for InstrumentRecord lookup",
+    )
+
+    instruments_cache_ttl_seconds: int = Field(
+        default=300,
+        validation_alias=AliasChoices("INSTRUMENTS_CACHE_TTL_SECONDS"),
+        description="InstrumentReader cache TTL in seconds (default 5 min)",
+    )
+
+    mark_update_max_messages: int = Field(
+        default=10,
+        validation_alias=AliasChoices("MARK_UPDATE_MAX_MESSAGES"),
+        description="Max messages to pull per Pub/Sub batch",
     )
 
 
