@@ -32,7 +32,7 @@ from unified_api_contracts import (
 
 from greeks_service.inputs.instrument_reader import InstrumentReader
 from greeks_service.inputs.mark_update_sub import MarkUpdateMessage
-from greeks_service.kernels.black_scholes import BlackScholesKernel, GreekResult, implied_vol_from_price
+from greeks_service.kernels.black_scholes import BlackScholesKernel, GreekResult
 from greeks_service.outputs.pricing_ledger_writer import PricingLedgerWriter
 
 logger = logging.getLogger(__name__)
@@ -87,47 +87,13 @@ class MarkUpdateHandler:
     ) -> GreekResult | None:
         """Compute greeks if instrument is an option with sufficient data.
 
-        IV resolution order:
-          1. Use ``msg.implied_volatility`` if present (CeFi venues, e.g. Deribit).
-          2. Fit IV from ``msg.mark_price`` via bisection (TradFi, e.g. CME/OPRA via
-             Databento which ships marks but not greeks or IV).
-          3. Return None if neither path yields a positive IV.
+        IV resolution: msg.implied_volatility (CeFi, e.g. Deribit) or None.
+        TradFi IV fitting requires underlying_spot in schema — not yet wired.
         """
-        if instrument is None:
+        inputs = _resolve_option_inputs(msg, instrument)
+        if inputs is None:
             return None
-
-        # Read option-specific fields from InstrumentRecord
-        strike = _get_decimal_attr(instrument, "strike")
-        expiry = _get_datetime_attr(instrument, "expiry")
-        option_type = _get_str_attr(instrument, "option_type")
-
-        if strike is None or expiry is None or option_type is None:
-            return None  # not an option or missing required fields
-
-        now = msg.timestamp_utc
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=UTC)
-
-        seconds_to_expiry = (expiry - now).total_seconds()
-        if seconds_to_expiry <= 0:
-            return None  # expired
-
-        time_to_expiry = Decimal(str(seconds_to_expiry / (365.25 * 24 * 3600)))
-        dividend_yield = msg.dividend_yield or Decimal(0)
-        right = str(option_type).upper()
-
-        # Resolve IV: use msg.implied_volatility (CeFi: Deribit provides IV directly).
-        # TradFi (CME/OPRA via Databento): IV fitting from option mark price requires
-        # an explicit underlying_spot in the mark_update schema — field not yet added.
-        # That path wires when the schema is extended; see plan Phase 3 CODE P0 (TradFi gap).
-        # implied_vol_from_price() is available in kernels for callers with both option
-        # price and underlying spot.
-        iv = msg.implied_volatility
-        if iv is None or iv <= Decimal(0):
-            return None
-
+        strike, time_to_expiry, right, iv, dividend_yield = inputs
         try:
             return self._kernel.compute(
                 spot=msg.mark_price,
@@ -191,6 +157,43 @@ class MarkUpdateHandler:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_SECONDS_PER_YEAR = 365.25 * 24 * 3600
+
+
+def _resolve_option_inputs(
+    msg: MarkUpdateMessage,
+    instrument: object | None,
+) -> tuple[Decimal, Decimal, str, Decimal, Decimal] | None:
+    """Extract and validate option params needed for kernel.compute().
+
+    Returns (strike, time_to_expiry, right, iv, dividend_yield) or None.
+    None when instrument is absent, not an option, expired, or IV is absent/zero.
+    """
+    if instrument is None:
+        return None
+    strike = _get_decimal_attr(instrument, "strike")
+    expiry = _get_datetime_attr(instrument, "expiry")
+    option_type = _get_str_attr(instrument, "option_type")
+    if strike is None or expiry is None or option_type is None:
+        return None
+
+    now = msg.timestamp_utc
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=UTC)
+    seconds_to_expiry = (expiry - now).total_seconds()
+    if seconds_to_expiry <= 0:
+        return None
+
+    time_to_expiry = Decimal(str(seconds_to_expiry / _SECONDS_PER_YEAR))
+    # Resolve IV: msg.implied_volatility for CeFi (Deribit provides IV directly).
+    # TradFi path (implied_vol_from_price) requires underlying_spot in schema — see plan.
+    iv = msg.implied_volatility
+    if iv is None or iv <= Decimal(0):
+        return None
+    return strike, time_to_expiry, str(option_type).upper(), iv, msg.dividend_yield or Decimal(0)
 
 
 def _unpack_greeks(

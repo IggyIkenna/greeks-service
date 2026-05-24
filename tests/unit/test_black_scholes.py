@@ -461,46 +461,63 @@ class TestImpliedVolFromPrice:
         assert abs(float(fitted) - float(target_iv)) < self._IV_TOL
 
     def test_zero_mark_price_returns_none(self) -> None:
-        assert implied_vol_from_price(
-            mark_price=Decimal(0),
-            spot=_S,
-            strike=_K,
-            time_to_expiry=_T,
-            risk_free_rate=_R,
-            right="CALL",
-        ) is None
+        assert (
+            implied_vol_from_price(
+                mark_price=Decimal(0),
+                spot=_S,
+                strike=_K,
+                time_to_expiry=_T,
+                risk_free_rate=_R,
+                right="CALL",
+            )
+            is None
+        )
 
     def test_expired_option_returns_none(self) -> None:
-        assert implied_vol_from_price(
-            mark_price=Decimal("10"),
-            spot=_S,
-            strike=_K,
-            time_to_expiry=Decimal(0),
-            risk_free_rate=_R,
-            right="CALL",
-        ) is None
+        assert (
+            implied_vol_from_price(
+                mark_price=Decimal("10"),
+                spot=_S,
+                strike=_K,
+                time_to_expiry=Decimal(0),
+                risk_free_rate=_R,
+                right="CALL",
+            )
+            is None
+        )
 
     def test_price_below_intrinsic_returns_none(self) -> None:
         # A deep ITM call at S=200, K=100, T=1y — intrinsic is ~100; price=1 is below bound
-        assert implied_vol_from_price(
-            mark_price=Decimal("1"),
-            spot=Decimal("200"),
-            strike=Decimal("100"),
-            time_to_expiry=_T,
-            risk_free_rate=_R,
-            right="CALL",
-        ) is None
+        assert (
+            implied_vol_from_price(
+                mark_price=Decimal("1"),
+                spot=Decimal("200"),
+                strike=Decimal("100"),
+                time_to_expiry=_T,
+                risk_free_rate=_R,
+                right="CALL",
+            )
+            is None
+        )
 
     def test_case_insensitive_right(self) -> None:
         target_iv = Decimal("0.30")
         mark = self._atm_call_price(target_iv)
         fitted_lower = implied_vol_from_price(
-            mark_price=mark, spot=_S, strike=_K, time_to_expiry=_T,
-            risk_free_rate=_R, right="call",
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="call",
         )
         fitted_upper = implied_vol_from_price(
-            mark_price=mark, spot=_S, strike=_K, time_to_expiry=_T,
-            risk_free_rate=_R, right="CALL",
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
         )
         assert fitted_lower is not None and fitted_upper is not None
         assert abs(float(fitted_lower) - float(fitted_upper)) < 1e-10

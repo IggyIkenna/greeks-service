@@ -116,7 +116,7 @@ def _build_handler(
 @pytest.mark.integration
 def test_vanilla_call_full_pipeline() -> None:
     """Full pipeline: publish → subscriber pull → handler → LedgerRow with greeks."""
-    from unified_trading_library.cloud_interface import LocalMessageBus
+    from unified_trading_library.cloud_interface.messaging import LocalMessageBus  # noqa: qg-deep-import
 
     from greeks_service.handlers.mark_update_handler import _PRICING_LEDGER_CLIENT_ID
     from greeks_service.inputs.mark_update_sub import MarkUpdateSubscriber
@@ -183,7 +183,7 @@ def test_vanilla_call_full_pipeline() -> None:
 @pytest.mark.integration
 def test_perp_no_greeks_funding_rate_passthrough() -> None:
     """Non-option mark_update: greeks are None, carry rate passes through."""
-    from unified_trading_library.cloud_interface import LocalMessageBus
+    from unified_trading_library.cloud_interface.messaging import LocalMessageBus  # noqa: qg-deep-import
 
     from greeks_service.inputs.mark_update_sub import MarkUpdateSubscriber
 
@@ -224,7 +224,7 @@ def test_perp_no_greeks_funding_rate_passthrough() -> None:
 @pytest.mark.integration
 def test_lst_rebase_rate_passthrough() -> None:
     """LST mark_update: rebase_rate passes through when present in payload."""
-    from unified_trading_library.cloud_interface import LocalMessageBus
+    from unified_trading_library.cloud_interface.messaging import LocalMessageBus  # noqa: qg-deep-import
 
     from greeks_service.inputs.mark_update_sub import MarkUpdateSubscriber
 
@@ -266,7 +266,7 @@ def test_lst_rebase_rate_passthrough() -> None:
 @pytest.mark.integration
 def test_equity_dividend_yield_passthrough() -> None:
     """Equity mark_update: dividend_yield passes through from payload."""
-    from unified_trading_library.cloud_interface import LocalMessageBus
+    from unified_trading_library.cloud_interface.messaging import LocalMessageBus  # noqa: qg-deep-import
 
     from greeks_service.inputs.mark_update_sub import MarkUpdateSubscriber
 

@@ -234,10 +234,10 @@ class BlackScholesKernel:
 # ── Implied-volatility fitting ────────────────────────────────────────────────
 
 # Bisection search bounds (annualised vol)
-_IV_LOW = Decimal("0.001")   # 0.1% — below this BS price ≈ intrinsic
-_IV_HIGH = Decimal("10.0")   # 1000% — pathological upper bound
+_IV_LOW = Decimal("0.001")  # 0.1% — below this BS price ≈ intrinsic
+_IV_HIGH = Decimal("10.0")  # 1000% — pathological upper bound
 _IV_MAX_ITER = 100
-_IV_TOL = Decimal("1e-8")    # convergence tolerance on IV
+_IV_TOL = Decimal("1e-8")  # convergence tolerance on IV
 
 
 def _bs_price(

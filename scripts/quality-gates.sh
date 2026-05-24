@@ -19,5 +19,6 @@ BE_EXCLUDE_GLOBS=(
     "greeks_service/inputs/instrument_reader.py"
     "greeks_service/handlers/mark_update_handler.py"
     "greeks_service/outputs/pricing_ledger_writer.py"
+    "greeks_service/batch/backfill.py"
 )
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
