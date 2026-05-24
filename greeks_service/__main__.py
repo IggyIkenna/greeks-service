@@ -26,7 +26,7 @@ _SERVICE_NAME = "greeks-service"
 
 def main_service_cli() -> None:  # pragma: no cover
     """ServiceBootstrap entry point for greeks-service."""
-    setup_events(service_name=_SERVICE_NAME, mode="batch", sink=None)
+    setup_events(service_name=_SERVICE_NAME)
     log_event(
         "STARTED",
         details={"service": _SERVICE_NAME, "phase": "1-skeleton"},
