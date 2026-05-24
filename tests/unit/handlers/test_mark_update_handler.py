@@ -239,3 +239,35 @@ class TestLedgerRowMetadata:
         mock_writer.write.assert_called_once()
         call_args = mock_writer.write.call_args
         assert call_args.args[1] == "tradfi"
+
+
+class TestIvFittingFallback:
+    """TradFi coverage notes — IV fitting kernel available; handler path pending schema extension.
+
+    The kernel exposes implied_vol_from_price() for callers with both an observed option
+    price and an underlying spot. The handler cannot use this path yet because MarkUpdateMessage
+    carries only one price field (mark_price = underlying spot). A separate option_mark_price
+    or underlying_spot field is required; see plan Phase 3 CODE P0 (TradFi gap).
+    """
+
+    def test_no_iv_with_option_instrument_greeks_none(self) -> None:
+        """Without IV in message, greeks are None even for option instruments.
+        TradFi IV fitting requires underlying_spot in schema — not yet wired."""
+        instr = _FakeInstrument(option_type="CALL", strike="100.00")
+        handler, _ = _build_handler(instr)
+        row = handler.handle(_make_msg(iv=None))
+        assert row.option_delta is None
+
+    def test_no_iv_any_mark_price_greeks_none(self) -> None:
+        """No IV and any mark_price → greeks None (IV path not wired in handler)."""
+        instr = _FakeInstrument(option_type="CALL", strike="100.00")
+        handler, _ = _build_handler(instr)
+        row = handler.handle(_make_msg(mark_price="0.001", iv=None))
+        assert row.option_delta is None
+
+    def test_iv_provided_takes_priority(self) -> None:
+        """If IV is provided directly, use it — greeks computed normally."""
+        instr = _FakeInstrument(option_type="CALL", strike="100.00")
+        handler, _ = _build_handler(instr)
+        row = handler.handle(_make_msg(iv="0.50"))
+        assert row.option_delta is not None

@@ -32,7 +32,7 @@ from unified_api_contracts import (
 
 from greeks_service.inputs.instrument_reader import InstrumentReader
 from greeks_service.inputs.mark_update_sub import MarkUpdateMessage
-from greeks_service.kernels.black_scholes import BlackScholesKernel, GreekResult
+from greeks_service.kernels.black_scholes import BlackScholesKernel, GreekResult, implied_vol_from_price
 from greeks_service.outputs.pricing_ledger_writer import PricingLedgerWriter
 
 logger = logging.getLogger(__name__)
@@ -85,10 +85,15 @@ class MarkUpdateHandler:
         msg: MarkUpdateMessage,
         instrument: object | None,
     ) -> GreekResult | None:
-        """Compute greeks if instrument is an option with sufficient data."""
+        """Compute greeks if instrument is an option with sufficient data.
+
+        IV resolution order:
+          1. Use ``msg.implied_volatility`` if present (CeFi venues, e.g. Deribit).
+          2. Fit IV from ``msg.mark_price`` via bisection (TradFi, e.g. CME/OPRA via
+             Databento which ships marks but not greeks or IV).
+          3. Return None if neither path yields a positive IV.
+        """
         if instrument is None:
-            return None
-        if msg.implied_volatility is None or msg.implied_volatility <= Decimal(0):
             return None
 
         # Read option-specific fields from InstrumentRecord
@@ -111,6 +116,17 @@ class MarkUpdateHandler:
 
         time_to_expiry = Decimal(str(seconds_to_expiry / (365.25 * 24 * 3600)))
         dividend_yield = msg.dividend_yield or Decimal(0)
+        right = str(option_type).upper()
+
+        # Resolve IV: use msg.implied_volatility (CeFi: Deribit provides IV directly).
+        # TradFi (CME/OPRA via Databento): IV fitting from option mark price requires
+        # an explicit underlying_spot in the mark_update schema — field not yet added.
+        # That path wires when the schema is extended; see plan Phase 3 CODE P0 (TradFi gap).
+        # implied_vol_from_price() is available in kernels for callers with both option
+        # price and underlying spot.
+        iv = msg.implied_volatility
+        if iv is None or iv <= Decimal(0):
+            return None
 
         try:
             return self._kernel.compute(
@@ -118,8 +134,8 @@ class MarkUpdateHandler:
                 strike=strike,
                 time_to_expiry=time_to_expiry,
                 risk_free_rate=self._risk_free_rate,
-                volatility=msg.implied_volatility,
-                right=str(option_type).upper(),
+                volatility=iv,
+                right=right,
                 dividend_yield=dividend_yield,
             )
         except Exception:

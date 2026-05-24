@@ -229,3 +229,107 @@ class BlackScholesKernel:
         vega = spot * disc_q * pdf_d1 * sqrt_t / Decimal(100)
 
         return GreekResult(delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho)
+
+
+# ── Implied-volatility fitting ────────────────────────────────────────────────
+
+# Bisection search bounds (annualised vol)
+_IV_LOW = Decimal("0.001")   # 0.1% — below this BS price ≈ intrinsic
+_IV_HIGH = Decimal("10.0")   # 1000% — pathological upper bound
+_IV_MAX_ITER = 100
+_IV_TOL = Decimal("1e-8")    # convergence tolerance on IV
+
+
+def _bs_price(
+    spot: Decimal,
+    strike: Decimal,
+    time_to_expiry: Decimal,
+    risk_free_rate: Decimal,
+    volatility: Decimal,
+    right: str,
+    dividend_yield: Decimal,
+) -> Decimal:
+    """Return the BSM option price for the given inputs.
+
+    Used internally by the IV solver. Returns 0 for degenerate inputs.
+    """
+    if spot <= _ZERO or strike <= _ZERO or time_to_expiry <= _ZERO or volatility <= _ZERO:
+        return _ZERO
+    try:
+        d1, d2 = _d1_d2(spot, strike, time_to_expiry, risk_free_rate, volatility, dividend_yield)
+        disc_q = Decimal(math.exp(-float(dividend_yield * time_to_expiry)))
+        disc_r = Decimal(math.exp(-float(risk_free_rate * time_to_expiry)))
+        if right == "CALL":
+            return spot * disc_q * _norm_cdf(d1) - strike * disc_r * _norm_cdf(d2)
+        else:
+            return strike * disc_r * _norm_cdf(-d2) - spot * disc_q * _norm_cdf(-d1)
+    except (OverflowError, InvalidOperation, ZeroDivisionError, ValueError):
+        return _ZERO
+
+
+def implied_vol_from_price(
+    *,
+    mark_price: Decimal,
+    spot: Decimal,
+    strike: Decimal,
+    time_to_expiry: Decimal,
+    risk_free_rate: Decimal,
+    right: str,
+    dividend_yield: Decimal = _ZERO,
+    max_iter: int = _IV_MAX_ITER,
+    tol: Decimal = _IV_TOL,
+) -> Decimal | None:
+    """Infer implied volatility from an observed option mark price via bisection.
+
+    Solves BSM_price(σ) = mark_price for σ (annualised IV).
+    Returns None when:
+    - Inputs are degenerate (mark_price ≤ 0, time_to_expiry ≤ 0, etc.)
+    - mark_price is below the model's intrinsic value floor (mispriced or closed)
+    - mark_price exceeds the model's upper bound (e.g. above spot for a call)
+    - Convergence fails within max_iter iterations
+
+    Args:
+        mark_price: Observed market / mid price of the option.
+        spot: Current underlying price.
+        strike: Option strike price.
+        time_to_expiry: Time to expiry in years (must be > 0).
+        risk_free_rate: Continuously-compounded risk-free rate (annualised).
+        right: ``"CALL"`` or ``"PUT"`` (case-insensitive).
+        dividend_yield: Continuous dividend yield (annualised; default 0).
+        max_iter: Maximum bisection iterations (default 100).
+        tol: Convergence tolerance on IV (default 1e-8).
+
+    Returns:
+        Implied volatility as a Decimal (e.g. ``Decimal("0.72")`` ≈ 72% IV),
+        or None if the price is outside the no-arbitrage bounds or convergence
+        fails.
+    """
+    if mark_price <= _ZERO or spot <= _ZERO or strike <= _ZERO or time_to_expiry <= _ZERO:
+        return None
+
+    r = right.upper()
+    q = dividend_yield
+
+    # Check bounds: price must lie within [intrinsic, theoretical max]
+    price_low = _bs_price(spot, strike, time_to_expiry, risk_free_rate, _IV_LOW, r, q)
+    price_high = _bs_price(spot, strike, time_to_expiry, risk_free_rate, _IV_HIGH, r, q)
+
+    if mark_price < price_low or mark_price > price_high:
+        return None
+
+    lo = _IV_LOW
+    hi = _IV_HIGH
+    for _ in range(max_iter):
+        mid = (lo + hi) / _TWO
+        price_mid = _bs_price(spot, strike, time_to_expiry, risk_free_rate, mid, r, q)
+        diff = price_mid - mark_price
+        if abs(diff) <= tol:
+            return mid
+        if diff < _ZERO:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            return (lo + hi) / _TWO
+
+    return None  # did not converge

@@ -25,6 +25,7 @@ from greeks_service.kernels.black_scholes import (
     BlackScholesKernel,
     GreekKernel,
     GreekResult,
+    implied_vol_from_price,
 )
 
 pytestmark = pytest.mark.unit
@@ -367,3 +368,139 @@ class TestGreekResult:
         assert "theta=" in s
         assert "vega=" in s
         assert "rho=" in s
+
+
+# ── 12. Implied-volatility fitting ───────────────────────────────────────────
+
+
+class TestImpliedVolFromPrice:
+    """implied_vol_from_price: round-trips and edge cases."""
+
+    _IV_TOL = 1e-5  # tolerance for IV round-trip (0.001%)
+
+    def _atm_call_price(self, vol: Decimal) -> Decimal:
+        """BS price for ATM call: S=K=100, T=1y, r=5%, q=0."""
+        from greeks_service.kernels.black_scholes import _bs_price
+
+        return _bs_price(_S, _K, _T, _R, vol, "CALL", Decimal(0))
+
+    def test_round_trip_atm_call(self) -> None:
+        target_iv = Decimal("0.20")
+        mark = self._atm_call_price(target_iv)
+        fitted = implied_vol_from_price(
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+        )
+        assert fitted is not None
+        assert abs(float(fitted) - float(target_iv)) < self._IV_TOL, f"fitted={fitted}"
+
+    def test_round_trip_atm_put(self) -> None:
+        from greeks_service.kernels.black_scholes import _bs_price
+
+        target_iv = Decimal("0.35")
+        mark = _bs_price(_S, _K, _T, _R, target_iv, "PUT", Decimal(0))
+        fitted = implied_vol_from_price(
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="PUT",
+        )
+        assert fitted is not None
+        assert abs(float(fitted) - float(target_iv)) < self._IV_TOL, f"fitted={fitted}"
+
+    def test_high_vol_round_trip(self) -> None:
+        target_iv = Decimal("0.80")
+        mark = self._atm_call_price(target_iv)
+        fitted = implied_vol_from_price(
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+        )
+        assert fitted is not None
+        assert abs(float(fitted) - float(target_iv)) < self._IV_TOL
+
+    def test_low_vol_round_trip(self) -> None:
+        target_iv = Decimal("0.05")
+        mark = self._atm_call_price(target_iv)
+        fitted = implied_vol_from_price(
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+        )
+        assert fitted is not None
+        assert abs(float(fitted) - float(target_iv)) < self._IV_TOL
+
+    def test_with_dividend_yield_round_trip(self) -> None:
+        from greeks_service.kernels.black_scholes import _bs_price
+
+        target_iv = Decimal("0.25")
+        q = Decimal("0.015")
+        mark = _bs_price(_S, _K, _T, _R, target_iv, "CALL", q)
+        fitted = implied_vol_from_price(
+            mark_price=mark,
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+            dividend_yield=q,
+        )
+        assert fitted is not None
+        assert abs(float(fitted) - float(target_iv)) < self._IV_TOL
+
+    def test_zero_mark_price_returns_none(self) -> None:
+        assert implied_vol_from_price(
+            mark_price=Decimal(0),
+            spot=_S,
+            strike=_K,
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+        ) is None
+
+    def test_expired_option_returns_none(self) -> None:
+        assert implied_vol_from_price(
+            mark_price=Decimal("10"),
+            spot=_S,
+            strike=_K,
+            time_to_expiry=Decimal(0),
+            risk_free_rate=_R,
+            right="CALL",
+        ) is None
+
+    def test_price_below_intrinsic_returns_none(self) -> None:
+        # A deep ITM call at S=200, K=100, T=1y — intrinsic is ~100; price=1 is below bound
+        assert implied_vol_from_price(
+            mark_price=Decimal("1"),
+            spot=Decimal("200"),
+            strike=Decimal("100"),
+            time_to_expiry=_T,
+            risk_free_rate=_R,
+            right="CALL",
+        ) is None
+
+    def test_case_insensitive_right(self) -> None:
+        target_iv = Decimal("0.30")
+        mark = self._atm_call_price(target_iv)
+        fitted_lower = implied_vol_from_price(
+            mark_price=mark, spot=_S, strike=_K, time_to_expiry=_T,
+            risk_free_rate=_R, right="call",
+        )
+        fitted_upper = implied_vol_from_price(
+            mark_price=mark, spot=_S, strike=_K, time_to_expiry=_T,
+            risk_free_rate=_R, right="CALL",
+        )
+        assert fitted_lower is not None and fitted_upper is not None
+        assert abs(float(fitted_lower) - float(fitted_upper)) < 1e-10
