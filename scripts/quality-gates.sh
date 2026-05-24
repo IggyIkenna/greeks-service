@@ -11,4 +11,6 @@ RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 LOCAL_DEPS=()
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
+# PYSEC-2026-161: starlette <1.0.1 — UTL pins starlette<1.0.0; upgrade blocked upstream
+PIP_AUDIT_EXTRA_ARGS="--ignore-vuln PYSEC-2026-161"
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
