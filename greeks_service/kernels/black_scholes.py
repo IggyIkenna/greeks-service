@@ -52,7 +52,7 @@ class GreekKernel(Protocol):
             dividend_yield: Continuous dividend yield (annualised; 0 for non-dividend).
 
         Returns:
-            GreekResult with all five first-order and second-order Greeks.
+            GreekResult with first-order (Δ/Θ/Vega/ρ) and second-order (Γ/vanna/volga) Greeks.
             Returns ``GreekResult.zero()`` for invalid / degenerate inputs (zero
             vol, zero time, etc.) — never raises from numerical degeneracies.
         """
@@ -60,9 +60,19 @@ class GreekKernel(Protocol):
 
 
 class GreekResult:
-    """Immutable container for the five primary BSM Greeks."""
+    """Immutable container for BSM Greeks (first- and second-order).
 
-    __slots__ = ("delta", "gamma", "theta", "vega", "rho")
+    Fields:
+        delta:  ∂V/∂S (per share)
+        gamma:  ∂²V/∂S²
+        theta:  ∂V/∂t per calendar day
+        vega:   ∂V/∂σ per 1% move in implied vol
+        rho:    ∂V/∂r per 1% move in risk-free rate
+        vanna:  ∂Δ/∂σ (same for call and put; raw, per unit of fractional vol)
+        volga:  ∂vega/∂σ (per-1%-vol vega sensitivity per unit of fractional vol)
+    """
+
+    __slots__ = ("delta", "gamma", "theta", "vega", "rho", "vanna", "volga")
 
     def __init__(
         self,
@@ -72,21 +82,26 @@ class GreekResult:
         theta: Decimal,
         vega: Decimal,
         rho: Decimal,
+        vanna: Decimal,
+        volga: Decimal,
     ) -> None:
         self.delta = delta
         self.gamma = gamma
         self.theta = theta
         self.vega = vega
         self.rho = rho
+        self.vanna = vanna
+        self.volga = volga
 
     @classmethod
     def zero(cls) -> GreekResult:
         z = Decimal(0)
-        return cls(delta=z, gamma=z, theta=z, vega=z, rho=z)
+        return cls(delta=z, gamma=z, theta=z, vega=z, rho=z, vanna=z, volga=z)
 
     def __repr__(self) -> str:
         return (
-            f"GreekResult(delta={self.delta}, gamma={self.gamma}, theta={self.theta}, vega={self.vega}, rho={self.rho})"
+            f"GreekResult(delta={self.delta}, gamma={self.gamma}, theta={self.theta}, "
+            f"vega={self.vega}, rho={self.rho}, vanna={self.vanna}, volga={self.volga})"
         )
 
 
@@ -227,8 +242,13 @@ class BlackScholesKernel:
         theta = theta_raw / _365
         # Vega per 1% move in vol (divide by 100)
         vega = spot * disc_q * pdf_d1 * sqrt_t / Decimal(100)
+        # Vanna: ∂Δ/∂σ = -disc_q * N'(d1) * d2 / σ  (identical for call and put)
+        vanna = -disc_q * pdf_d1 * d2 / volatility
+        # Volga (vomma): ∂vega/∂σ = vega * d1 * d2 / σ
+        # Expressed per-unit of fractional vol (consistent with vega's /100 scaling)
+        volga = vega * d1 * d2 / volatility
 
-        return GreekResult(delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho)
+        return GreekResult(delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho, vanna=vanna, volga=volga)
 
 
 # ── Implied-volatility fitting ────────────────────────────────────────────────

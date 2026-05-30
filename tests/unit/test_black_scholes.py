@@ -68,13 +68,15 @@ class TestProtocol:
     def test_isinstance_greek_kernel(self) -> None:
         assert isinstance(_kernel, GreekKernel)
 
-    def test_greek_result_has_five_slots(self) -> None:
+    def test_greek_result_has_seven_slots(self) -> None:
         r = _call()
         assert hasattr(r, "delta")
         assert hasattr(r, "gamma")
         assert hasattr(r, "theta")
         assert hasattr(r, "vega")
         assert hasattr(r, "rho")
+        assert hasattr(r, "vanna")
+        assert hasattr(r, "volga")
 
     def test_all_fields_are_decimal(self) -> None:
         r = _call()
@@ -83,6 +85,8 @@ class TestProtocol:
         assert isinstance(r.theta, Decimal)
         assert isinstance(r.vega, Decimal)
         assert isinstance(r.rho, Decimal)
+        assert isinstance(r.vanna, Decimal)
+        assert isinstance(r.volga, Decimal)
 
 
 # ── 2. Degenerate inputs ─────────────────────────────────────────────────────
@@ -124,7 +128,9 @@ class TestDegenerateInputs:
 
 def _is_zero_result(r: GreekResult) -> bool:
     z = Decimal(0)
-    return r.delta == z and r.gamma == z and r.theta == z and r.vega == z and r.rho == z
+    return (
+        r.delta == z and r.gamma == z and r.theta == z and r.vega == z and r.rho == z and r.vanna == z and r.volga == z
+    )
 
 
 # ── 3. ATM CALL — value and sign checks ──────────────────────────────────────
@@ -359,6 +365,8 @@ class TestGreekResult:
         assert r.theta == z
         assert r.vega == z
         assert r.rho == z
+        assert r.vanna == z
+        assert r.volga == z
 
     def test_repr_contains_all_field_names(self) -> None:
         r = _call()
@@ -368,6 +376,8 @@ class TestGreekResult:
         assert "theta=" in s
         assert "vega=" in s
         assert "rho=" in s
+        assert "vanna=" in s
+        assert "volga=" in s
 
 
 # ── 12. Implied-volatility fitting ───────────────────────────────────────────
@@ -521,3 +531,72 @@ class TestImpliedVolFromPrice:
         )
         assert fitted_lower is not None and fitted_upper is not None
         assert abs(float(fitted_lower) - float(fitted_upper)) < 1e-10
+
+
+# ── 13. Vanna + Volga (second-order vol greeks) ───────────────────────────────
+
+
+class TestVannaVolga:
+    """Vanna (∂Δ/∂σ) and Volga/Vomma (∂Vega/∂σ) correctness and sign constraints.
+
+    ATM parameters: S=K=100, T=1y, r=5%, σ=20%, q=0
+      d1 ≈ 0.350, d2 ≈ 0.150, N'(d1) ≈ 0.375
+      vanna = -N'(d1)*d2/σ ≈ -0.375*0.15/0.20 ≈ -0.281
+      volga = vega*d1*d2/σ ≈ 0.3752*0.35*0.15/0.20 ≈ 0.0985
+    """
+
+    def test_vanna_is_decimal(self) -> None:
+        assert isinstance(_call().vanna, Decimal)
+
+    def test_volga_is_decimal(self) -> None:
+        assert isinstance(_call().volga, Decimal)
+
+    def test_vanna_atm_negative(self) -> None:
+        # ATM d2 > 0 → vanna = -disc_q * N'(d1) * d2 / σ < 0
+        assert _call().vanna < Decimal(0)
+
+    def test_vanna_atm_approx(self) -> None:
+        # vanna ≈ -0.281 for ATM params
+        assert abs(float(_call().vanna) - (-0.281)) < 0.01
+
+    def test_volga_atm_positive(self) -> None:
+        # ATM d1 > 0, d2 > 0 → volga = vega * d1 * d2 / σ > 0
+        assert _call().volga > Decimal(0)
+
+    def test_volga_atm_approx(self) -> None:
+        # volga ≈ 0.0985 for ATM params
+        assert abs(float(_call().volga) - 0.0985) < 0.01
+
+    def test_vanna_same_for_call_and_put(self) -> None:
+        # Vanna is call/put symmetric (∂Δ/∂σ for put equals ∂Δ/∂σ for call)
+        rc = _call()
+        rp = _put()
+        assert abs(float(rc.vanna) - float(rp.vanna)) < _TOL
+
+    def test_volga_same_for_call_and_put(self) -> None:
+        # Volga is call/put symmetric
+        rc = _call()
+        rp = _put()
+        assert abs(float(rc.volga) - float(rp.volga)) < _TOL
+
+    def test_volga_positive_across_strikes(self) -> None:
+        # Volga is always non-negative (convexity of vega w.r.t. vol)
+        for strike_str in ("50", "80", "100", "120", "150"):
+            r = _call(strike=Decimal(strike_str))
+            assert r.volga >= Decimal(0), f"volga<0 at strike={strike_str}"
+
+    def test_vanna_sign_flips_with_d2(self) -> None:
+        # OTM call: d2 < 0 → vanna > 0 (high strike, low spot)
+        r_otm = _call(spot=Decimal("70"))  # d2 will be negative
+        assert r_otm.vanna > Decimal(0)
+
+    def test_degenerate_zero_returns_zero_vanna_volga(self) -> None:
+        r = _call(volatility=Decimal("0"))
+        assert r.vanna == Decimal(0)
+        assert r.volga == Decimal(0)
+
+    def test_vanna_volga_change_with_vol(self) -> None:
+        # Higher vol should change vanna/volga (basic sanity)
+        r_low = _call(volatility=Decimal("0.10"))
+        r_high = _call(volatility=Decimal("0.50"))
+        assert r_low.vanna != r_high.vanna or r_low.volga != r_high.volga
