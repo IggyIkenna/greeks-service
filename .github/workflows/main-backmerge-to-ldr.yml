@@ -1,0 +1,174 @@
+# main-backmerge-to-ldr.yml — auto back-merge `main` → live-defi-rollout
+#
+# Triggered on every push to `main`. Brings main-only commits (doc-fast-path
+# merges, semver-agent version bumps, [skip ci] automation) back into the
+# integration branch `live-defi-rollout` so the two never drift apart.
+#
+# Why this exists (root cause, 2026-06-01): the PM/codex doc-fast-path lands
+# commits directly on `main` but nothing back-merged them into LDR. Over a sprint
+# `main` and LDR diverged BOTH ways and the LDR→main catch-up PR became a
+# ~95-file conflict (PR #103). This workflow closes that hole permanently — it is
+# the reverse-direction sibling of `tab-mirror-to-ldr.yml`.
+#
+# SAFETY CONTRACT (this is the important part):
+#   - NEVER force-pushes. It only does a `git merge` (additive) then an FF-only
+#     push to LDR. It can never overwrite or rewrite a developer's LDR work.
+#   - CLEAN merge  → silently merge-pushes into LDR (no PR noise). Rapid tab→LDR
+#     development is untouched: this fires only on `main` pushes, which are rare.
+#   - CONFLICT     → does NOTHING destructive. It opens (or refreshes) a visible
+#     `main → live-defi-rollout` PR for a human to resolve, and notifies the
+#     orchestrator. It never auto-resolves a conflict.
+#   - RACE (LDR moved mid-merge) → retries FF-only up to 3×; never clobbers.
+#
+# Concurrency: keyed on the destination ref so simultaneous back-merges serialize.
+#
+# Rollout: `bash unified-trading-pm/scripts/workflow-templates/rollout-workflow-templates.sh --template main-backmerge-to-ldr.yml`
+#
+# SSOT: this file lives canonically in unified-trading-pm/scripts/workflow-templates/.
+# Per-repo copies are flat duplicates; never edit the per-repo copy.
+
+name: main-backmerge-to-ldr
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: main-backmerge-to-ldr
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  backmerge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout (full history needed for merge + relationship check)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Back-merge main into LDR (merge-only; conflict → visible PR; never force)
+        id: bm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          # LDR must exist (some repos use main-only; nothing to back-merge then).
+          if ! git ls-remote --exit-code --heads origin live-defi-rollout >/dev/null 2>&1; then
+            echo "decision=noop" >> "$GITHUB_OUTPUT"
+            echo "reason=no live-defi-rollout branch in this repo" >> "$GITHUB_OUTPUT"
+            echo "[backmerge:noop] no LDR branch — nothing to do"
+            exit 0
+          fi
+
+          git fetch origin main live-defi-rollout --quiet
+
+          # If LDR already contains everything on main, this is a no-op.
+          if [ "$(git rev-list origin/live-defi-rollout..origin/main --count)" = "0" ]; then
+            echo "decision=noop" >> "$GITHUB_OUTPUT"
+            echo "reason=main already contained in LDR" >> "$GITHUB_OUTPUT"
+            echo "[backmerge:noop] LDR already contains main HEAD"
+            exit 0
+          fi
+
+          git config user.name "uts-backmerge-bot"
+          git config user.email "uts-backmerge-bot@users.noreply.github.com"
+
+          DECISION="race"
+          REASON="LDR kept advancing; exhausted retries"
+          for attempt in 1 2 3; do
+            git fetch origin live-defi-rollout --quiet
+            git checkout -B _backmerge origin/live-defi-rollout --quiet
+
+            # Additive merge. --no-ff keeps a clear back-merge commit in history.
+            if ! git merge --no-ff --no-edit origin/main; then
+              git merge --abort || true
+              DECISION="conflict"
+              REASON="main and LDR conflict — human resolution required (no auto-resolve)"
+              break
+            fi
+
+            # FF-only push (default push is non-destructive on the destination ref).
+            if git push origin "HEAD:live-defi-rollout" 2>&1 | tee /tmp/push.log; then
+              DECISION="merged"
+              REASON="main back-merged into LDR (attempt ${attempt})"
+              break
+            else
+              if grep -q "non-fast-forward\|rejected" /tmp/push.log; then
+                echo "[backmerge:race] LDR advanced during merge — retrying (attempt ${attempt})"
+                continue
+              fi
+              # A real push error (auth/etc) — surface it.
+              DECISION="error"
+              REASON="push failed for a non-race reason (see log)"
+              cat /tmp/push.log
+              break
+            fi
+          done
+
+          echo "decision=${DECISION}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
+          echo "[backmerge:${DECISION}] ${REASON}"
+
+          # On conflict, ensure a VISIBLE main→LDR PR exists so a human can resolve
+          # it (mirrors how PR #103 surfaced the original drift). Never auto-resolve.
+          if [ "${DECISION}" = "conflict" ]; then
+            EXISTING=$(gh pr list --base live-defi-rollout --head main --state open --json number -q '.[0].number' 2>/dev/null || echo "")
+            if [ -z "${EXISTING}" ]; then
+              gh pr create --base live-defi-rollout --head main \
+                --title "[backmerge] main → live-defi-rollout (CONFLICT — needs resolution)" \
+                --body "Auto-opened by main-backmerge-to-ldr because main has commit(s) that conflict with LDR. Resolve to keep main and the integration branch from drifting (root cause: doc-fast-path commits to main not back-merged). Do NOT force-push LDR." \
+                2>/dev/null && echo "[backmerge] opened conflict PR" || echo "[backmerge] could not open PR (may already exist / perms)"
+            else
+              echo "[backmerge] conflict PR #${EXISTING} already open"
+            fi
+          fi
+
+          # A real error (not conflict/race/noop/merged) is the only red-fail case.
+          if [ "${DECISION}" = "error" ]; then
+            exit 1
+          fi
+          exit 0
+
+      - name: Notify orchestrator (best-effort; fires on every decision)
+        if: always()
+        env:
+          ORCHESTRATOR_URL: https://api.agent-orchestrator.odum-research.com
+          DECISION: ${{ steps.bm.outputs.decision }}
+          REASON: ${{ steps.bm.outputs.reason }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set +e
+          SHA="$(git rev-parse origin/main 2>/dev/null || echo unknown)"
+          PAYLOAD=$(cat <<EOF
+          {
+            "repo": "${REPO}",
+            "branch": "main",
+            "sha": "${SHA}",
+            "decision": "${DECISION:-unknown}",
+            "reason": "${REASON:-no reason recorded}",
+            "workflow_run_url": "${RUN_URL}",
+            "kind": "main-backmerge-to-ldr"
+          }
+          EOF
+          )
+          HTTP_CODE=$(curl -sS -o /tmp/notify.body -w "%{http_code}" \
+            -X POST "${ORCHESTRATOR_URL}/api/mirror-events" \
+            -H "Content-Type: application/json" \
+            --connect-timeout 5 --max-time 15 \
+            -d "${PAYLOAD}" || echo "000")
+          if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "201" ]; then
+            echo "[backmerge-notify] ok (${HTTP_CODE})"
+          else
+            echo "[backmerge-notify] non-2xx (${HTTP_CODE}) — best-effort, ignoring"
+          fi
+          exit 0
