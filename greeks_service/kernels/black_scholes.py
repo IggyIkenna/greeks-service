@@ -153,6 +153,36 @@ def _d1_d2(
     return d1, d2
 
 
+def _delta_rho_theta(
+    right: str,
+    spot: Decimal,
+    strike: Decimal,
+    time_to_expiry: Decimal,
+    risk_free_rate: Decimal,
+    dividend_yield: Decimal,
+    disc_q: Decimal,
+    disc_r: Decimal,
+    sqrt_t: Decimal,
+    n_d1: Decimal,
+    n_d2: Decimal,
+    n_neg_d1: Decimal,
+    n_neg_d2: Decimal,
+    pdf_d1: Decimal,
+    volatility: Decimal,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Return (delta, rho, theta_raw) for a CALL or PUT."""
+    common = -spot * disc_q * pdf_d1 * volatility / (_TWO * sqrt_t)
+    if right == "CALL":
+        delta = disc_q * n_d1
+        rho = strike * time_to_expiry * disc_r * n_d2 / Decimal(100)
+        theta_raw = common - risk_free_rate * strike * disc_r * n_d2 + dividend_yield * spot * disc_q * n_d1
+    else:  # PUT
+        delta = disc_q * (n_d1 - _ONE)
+        rho = -strike * time_to_expiry * disc_r * n_neg_d2 / Decimal(100)
+        theta_raw = common + risk_free_rate * strike * disc_r * n_neg_d2 - dividend_yield * spot * disc_q * n_neg_d1
+    return delta, rho, theta_raw
+
+
 # ── Black-Scholes kernel ──────────────────────────────────────────────────────
 
 
@@ -209,34 +239,30 @@ class BlackScholesKernel:
             return GreekResult.zero()
 
         d1, d2 = _d1_d2(spot, strike, time_to_expiry, risk_free_rate, volatility, dividend_yield)
-
         disc_q = Decimal(math.exp(-float(dividend_yield * time_to_expiry)))
         disc_r = Decimal(math.exp(-float(risk_free_rate * time_to_expiry)))
-
-        n_d1 = _norm_cdf(d1)
-        n_d2 = _norm_cdf(d2)
-        n_neg_d1 = _norm_cdf(-d1)
-        n_neg_d2 = _norm_cdf(-d2)
-        pdf_d1 = _norm_pdf(d1)
         sqrt_t = Decimal(math.sqrt(float(time_to_expiry)))
+        n_d1, n_d2 = _norm_cdf(d1), _norm_cdf(d2)
+        n_neg_d1, n_neg_d2 = _norm_cdf(-d1), _norm_cdf(-d2)
+        pdf_d1 = _norm_pdf(d1)
 
-        if right == "CALL":
-            delta = disc_q * n_d1
-            rho = strike * time_to_expiry * disc_r * n_d2 / Decimal(100)
-            theta_raw = (
-                -spot * disc_q * pdf_d1 * volatility / (_TWO * sqrt_t)
-                - risk_free_rate * strike * disc_r * n_d2
-                + dividend_yield * spot * disc_q * n_d1
-            )
-        else:  # PUT
-            delta = disc_q * (n_d1 - _ONE)
-            rho = -strike * time_to_expiry * disc_r * n_neg_d2 / Decimal(100)
-            theta_raw = (
-                -spot * disc_q * pdf_d1 * volatility / (_TWO * sqrt_t)
-                + risk_free_rate * strike * disc_r * n_neg_d2
-                - dividend_yield * spot * disc_q * n_neg_d1
-            )
-
+        delta, rho, theta_raw = _delta_rho_theta(
+            right,
+            spot,
+            strike,
+            time_to_expiry,
+            risk_free_rate,
+            dividend_yield,
+            disc_q,
+            disc_r,
+            sqrt_t,
+            n_d1,
+            n_d2,
+            n_neg_d1,
+            n_neg_d2,
+            pdf_d1,
+            volatility,
+        )
         gamma = disc_q * pdf_d1 / (spot * volatility * sqrt_t)
         # Theta per calendar day (divide annual theta by 365)
         theta = theta_raw / _365
@@ -245,9 +271,7 @@ class BlackScholesKernel:
         # Vanna: ∂Δ/∂σ = -disc_q * N'(d1) * d2 / σ  (identical for call and put)
         vanna = -disc_q * pdf_d1 * d2 / volatility
         # Volga (vomma): ∂vega/∂σ = vega * d1 * d2 / σ
-        # Expressed per-unit of fractional vol (consistent with vega's /100 scaling)
         volga = vega * d1 * d2 / volatility
-
         return GreekResult(delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho, vanna=vanna, volga=volga)
 
 

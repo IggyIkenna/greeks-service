@@ -9,6 +9,8 @@ SOURCE_DIR="greeks_service"
 MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
+PYRIGHT_TIMEOUT=${PYRIGHT_TIMEOUT:-240}
+MAX_DURATION=${MAX_DURATION:-600}
 LOCAL_DEPS=()
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 # PYSEC-2026-161: starlette <1.0.1 — UTL pins starlette<1.0.0; upgrade blocked upstream
