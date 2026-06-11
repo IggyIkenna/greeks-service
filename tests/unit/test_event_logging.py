@@ -14,7 +14,7 @@ class TestEventLogging:
 
         assert callable(log_event)
 
-    def test_events_module_re_exports_log_event(self) -> None:
-        from greeks_service.events import log_event
+    def test_log_event_from_utl_directly(self) -> None:
+        from unified_trading_library import log_event
 
         assert callable(log_event)
