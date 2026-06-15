@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 if TYPE_CHECKING:
     from unified_trading_library.cloud_interface import MessageBus  # noqa: qg-deep-import
@@ -105,7 +105,7 @@ def decode_mark_update(data: bytes) -> MarkUpdateMessage:
         KeyError: if required fields are missing.
         ValueError / DecimalException: if numeric fields are malformed.
     """
-    raw: dict[str, object] = json.loads(data.decode("utf-8"))
+    raw: dict[str, object] = cast(dict[str, object], json.loads(data.decode("utf-8")))
     ts_raw = raw["timestamp_utc"]
     if not isinstance(ts_raw, str):
         raise ValueError(f"timestamp_utc must be a string, got {type(ts_raw)}")

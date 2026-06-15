@@ -44,8 +44,8 @@ typeCheckingMode = "strict"
 include = ["greeks_service"]
 reportAny = "error"
 reportMissingTypeStubs = false
-venvPath = "../"
-venv = ".venv-workspace"
+venvPath = "."
+venv = ".venv"
 extraPaths = [
     "../unified-trading-library",
     "../unified-api-contracts",

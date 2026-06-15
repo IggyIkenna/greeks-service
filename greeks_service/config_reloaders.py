@@ -33,13 +33,6 @@ def get_active_instruments() -> InstrumentDomainConfig | None:
     return _active_instruments
 
 
-def _on_instruments_reload(config: InstrumentDomainConfig) -> None:
-    """Handle instruments domain config hot-reload — Phase 1 stub."""
-    raise NotImplementedError(
-        "greeks-service Phase 1 — see plans/active/global_ledger_pnl_attribution_migration_2026_06_01.md"
-    )
-
-
 def start_domain_config_reloaders(service_config: GreeksServiceConfig) -> None:
     """Start domain config reloaders. Called on service startup — Phase 1 stub."""
     raise NotImplementedError(

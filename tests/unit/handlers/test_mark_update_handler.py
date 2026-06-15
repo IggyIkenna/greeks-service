@@ -10,6 +10,9 @@ Covers:
 - Zero / missing IV: greeks None
 - event_id derives from source_event_id
 - _PRICING_LEDGER_CLIENT_ID used on all rows
+
+Note: handle() returns None (matches MessageCallback type); we inspect
+the row via mock_writer.write.call_args to assert on emitted LedgerRow fields.
 """
 
 from __future__ import annotations
@@ -102,6 +105,18 @@ def _build_handler(
     return handler, mock_writer
 
 
+def _emitted_row(mock_writer: MagicMock) -> object:
+    """Extract the LedgerRow passed to mock_writer.write() call.
+
+    handle() returns None; the emitted row is the first element of the list
+    passed as the first positional arg to PricingLedgerWriter.write().
+    """
+    mock_writer.write.assert_called_once()
+    rows_arg = mock_writer.write.call_args.args[0]
+    assert len(rows_arg) == 1
+    return rows_arg[0]
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
@@ -110,128 +125,148 @@ class TestOptionsGreeks:
         instr = _FakeInstrument(option_type="CALL")
         handler, mock_writer = _build_handler(instr)
         msg = _make_msg()
-        row = handler.handle(msg)
-        assert row.option_delta is not None
-        assert row.gamma is not None
-        assert row.theta is not None
-        assert row.vega is not None
-        assert row.rho is not None
+        ret = handler.handle(msg)
+        assert ret is None  # handle() always returns None
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is not None  # type: ignore[union-attr]
+        assert row.gamma is not None  # type: ignore[union-attr]
+        assert row.theta is not None  # type: ignore[union-attr]
+        assert row.vega is not None  # type: ignore[union-attr]
+        assert row.rho is not None  # type: ignore[union-attr]
         # Delta for deep ITM call should be between 0 and 1
-        assert Decimal(0) < row.option_delta < Decimal(1)
+        assert Decimal(0) < row.option_delta < Decimal(1)  # type: ignore[union-attr]
 
     def test_vanilla_put_greeks_computed(self) -> None:
         instr = _FakeInstrument(option_type="PUT")
-        handler, _ = _build_handler(instr)
+        handler, mock_writer = _build_handler(instr)
         msg = _make_msg()
-        row = handler.handle(msg)
-        assert row.option_delta is not None
+        ret = handler.handle(msg)
+        assert ret is None
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is not None  # type: ignore[union-attr]
         # Put delta should be between -1 and 0
-        assert Decimal(-1) < row.option_delta < Decimal(0)
+        assert Decimal(-1) < row.option_delta < Decimal(0)  # type: ignore[union-attr]
 
     def test_expired_option_greeks_none(self) -> None:
         instr = _FakeInstrument(expiry=_EXPIRY_PAST)
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg())
-        assert row.option_delta is None
-        assert row.gamma is None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg())
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
+        assert row.gamma is None  # type: ignore[union-attr]
 
     def test_zero_iv_greeks_none(self) -> None:
         instr = _FakeInstrument()
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg(iv="0.0"))
-        assert row.option_delta is None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg(iv="0.0"))
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
 
     def test_absent_iv_greeks_none(self) -> None:
         instr = _FakeInstrument()
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg(iv=None))
-        assert row.option_delta is None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg(iv=None))
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
 
 
 class TestCarryRatesPassthrough:
     def test_funding_rate_populated_on_row(self) -> None:
-        handler, _ = _build_handler(None)
+        handler, mock_writer = _build_handler(None)
         msg = _make_msg(funding_rate="0.0001")
-        row = handler.handle(msg)
-        assert row.funding_rate == Decimal("0.0001")
+        handler.handle(msg)
+        row = _emitted_row(mock_writer)
+        assert row.funding_rate == Decimal("0.0001")  # type: ignore[union-attr]
 
     def test_dividend_yield_populated_on_row(self) -> None:
-        handler, _ = _build_handler(None)
+        handler, mock_writer = _build_handler(None)
         msg = _make_msg(dividend_yield="0.015")
-        row = handler.handle(msg)
-        assert row.dividend_yield == Decimal("0.015")
+        handler.handle(msg)
+        row = _emitted_row(mock_writer)
+        assert row.dividend_yield == Decimal("0.015")  # type: ignore[union-attr]
 
     def test_rebase_rate_populated_on_row(self) -> None:
-        handler, _ = _build_handler(None)
+        handler, mock_writer = _build_handler(None)
         msg = _make_msg(rebase_rate="0.00045")
-        row = handler.handle(msg)
-        assert row.rebase_rate == Decimal("0.00045")
+        handler.handle(msg)
+        row = _emitted_row(mock_writer)
+        assert row.rebase_rate == Decimal("0.00045")  # type: ignore[union-attr]
 
     def test_staking_apy_populated_on_row(self) -> None:
-        handler, _ = _build_handler(None)
+        handler, mock_writer = _build_handler(None)
         msg = _make_msg(staking_apy="0.035")
-        row = handler.handle(msg)
-        assert row.staking_apy == Decimal("0.035")
+        handler.handle(msg)
+        row = _emitted_row(mock_writer)
+        assert row.staking_apy == Decimal("0.035")  # type: ignore[union-attr]
 
     def test_none_carry_rates_remain_none(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg())
-        assert row.funding_rate is None
-        assert row.dividend_yield is None
-        assert row.rebase_rate is None
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg())
+        row = _emitted_row(mock_writer)
+        assert row.funding_rate is None  # type: ignore[union-attr]
+        assert row.dividend_yield is None  # type: ignore[union-attr]
+        assert row.rebase_rate is None  # type: ignore[union-attr]
 
 
 class TestNoneInstrument:
     def test_no_instrument_record_greeks_none(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg())
-        assert row.option_delta is None
-        assert row.gamma is None
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg())
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
+        assert row.gamma is None  # type: ignore[union-attr]
 
     def test_no_instrument_record_row_still_emitted(self) -> None:
         handler, mock_writer = _build_handler(None)
-        row = handler.handle(_make_msg())
-        assert row is not None
+        ret = handler.handle(_make_msg())
+        assert ret is None  # handle() returns None
         mock_writer.write.assert_called_once()
 
 
 class TestLedgerRowMetadata:
     def test_event_id_derived_from_source(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg(source_event_id="src-xyz"))
-        assert row.event_id == "src-xyz.greeks"
-        assert row.parent_event_id == "src-xyz"
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg(source_event_id="src-xyz"))
+        row = _emitted_row(mock_writer)
+        assert row.event_id == "src-xyz.greeks"  # type: ignore[union-attr]
+        assert row.parent_event_id == "src-xyz"  # type: ignore[union-attr]
 
     def test_empty_source_event_id_generates_uuid(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg(source_event_id=""))
-        assert row.event_id.startswith("greeks-")
-        assert row.parent_event_id is None
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg(source_event_id=""))
+        row = _emitted_row(mock_writer)
+        assert row.event_id.startswith("greeks-")  # type: ignore[union-attr]
+        assert row.parent_event_id is None  # type: ignore[union-attr]
 
     def test_client_id_is_pricing_sentinel(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg())
-        assert row.client_id == _PRICING_LEDGER_CLIENT_ID
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg())
+        row = _emitted_row(mock_writer)
+        assert row.client_id == _PRICING_LEDGER_CLIENT_ID  # type: ignore[union-attr]
 
     def test_mark_price_on_row(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg(mark_price="3200.50"))
-        assert row.price == Decimal("3200.50")
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg(mark_price="3200.50"))
+        row = _emitted_row(mock_writer)
+        assert row.price == Decimal("3200.50")  # type: ignore[union-attr]
 
     def test_asset_group_passthrough(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg(asset_group="defi"))
-        assert row.asset_group == "defi"
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg(asset_group="defi"))
+        row = _emitted_row(mock_writer)
+        assert row.asset_group == "defi"  # type: ignore[union-attr]
 
     def test_venue_passthrough(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg(venue_id="HYPERLIQUID"))
-        assert row.venue == "HYPERLIQUID"
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg(venue_id="HYPERLIQUID"))
+        row = _emitted_row(mock_writer)
+        assert row.venue == "HYPERLIQUID"  # type: ignore[union-attr]
 
     def test_delta_is_zero_for_mark_update(self) -> None:
-        handler, _ = _build_handler(None)
-        row = handler.handle(_make_msg())
-        assert row.delta == Decimal(0)
+        handler, mock_writer = _build_handler(None)
+        handler.handle(_make_msg())
+        row = _emitted_row(mock_writer)
+        assert row.delta == Decimal(0)  # type: ignore[union-attr]
 
     def test_writer_called_with_asset_group(self) -> None:
         handler, mock_writer = _build_handler(None)
@@ -254,20 +289,23 @@ class TestIvFittingFallback:
         """Without IV in message, greeks are None even for option instruments.
         TradFi IV fitting requires underlying_spot in schema — not yet wired."""
         instr = _FakeInstrument(option_type="CALL", strike="100.00")
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg(iv=None))
-        assert row.option_delta is None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg(iv=None))
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
 
     def test_no_iv_any_mark_price_greeks_none(self) -> None:
         """No IV and any mark_price → greeks None (IV path not wired in handler)."""
         instr = _FakeInstrument(option_type="CALL", strike="100.00")
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg(mark_price="0.001", iv=None))
-        assert row.option_delta is None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg(mark_price="0.001", iv=None))
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is None  # type: ignore[union-attr]
 
     def test_iv_provided_takes_priority(self) -> None:
         """If IV is provided directly, use it — greeks computed normally."""
         instr = _FakeInstrument(option_type="CALL", strike="100.00")
-        handler, _ = _build_handler(instr)
-        row = handler.handle(_make_msg(iv="0.50"))
-        assert row.option_delta is not None
+        handler, mock_writer = _build_handler(instr)
+        handler.handle(_make_msg(iv="0.50"))
+        row = _emitted_row(mock_writer)
+        assert row.option_delta is not None  # type: ignore[union-attr]

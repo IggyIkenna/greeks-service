@@ -6,6 +6,7 @@
 # subsequent phases of plans/active/global_ledger_pnl_attribution_migration_2026_06_01.md.
 SERVICE_NAME="greeks-service"
 SOURCE_DIR="greeks_service"
+BASEDPYRIGHT_MAX_ERRORS=0  # ratchet: 0 strict errors enforced; raised from no-ceiling (2026-06-15)
 MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}

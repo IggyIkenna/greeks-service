@@ -26,9 +26,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Iterator
+from typing import Iterator, cast
 
-from unified_api_contracts import LedgerRow
 from unified_trading_library import download_from_storage, get_storage_client
 
 from greeks_service.handlers.mark_update_handler import MarkUpdateHandler
@@ -101,12 +100,12 @@ def _read_parquet_rows(bucket: str, gcs_path: str) -> list[dict[str, object]]:
     """Download a parquet from GCS and return as list of row dicts."""
     import io  # noqa: imports-inside-functions
 
-    import pyarrow.parquet as pq  # noqa: imports-inside-functions
+    import pandas as pd  # noqa: imports-inside-functions
 
     data = download_from_storage(bucket, gcs_path)
-    table = pq.read_table(io.BytesIO(data))
-    col_names = table.schema.names
-    return [{col: table.column(col)[i].as_py() for col in col_names} for i in range(table.num_rows)]
+    df = pd.read_parquet(io.BytesIO(data), engine="pyarrow")
+    # to_dict returns list[dict[str, Any]]; cast to list[dict[str, object]] at pandas boundary
+    return cast(list[dict[str, object]], df.to_dict(orient="records"))
 
 
 def _iter_parquet_paths(bucket: str, asset_group: str, target_date: date) -> Iterator[str]:
@@ -144,13 +143,13 @@ class GreeksBackfillProcessor:
         self,
         asset_group: str,
         target_date: date,
-    ) -> list[LedgerRow]:
+    ) -> int:
         """Process all mark_update parquets for asset_group × date.
 
         Returns:
-            List of LedgerRow written to PricingLedger.
+            Count of rows dispatched to handler (and written to PricingLedger via handler).
         """
-        rows: list[LedgerRow] = []
+        dispatched_count = 0
         parquet_count = 0
         skip_count = 0
 
@@ -168,8 +167,8 @@ class GreeksBackfillProcessor:
                     skip_count += 1
                     continue
                 try:
-                    ledger_row = self._handler.handle(msg)
-                    rows.append(ledger_row)
+                    self._handler.handle(msg)
+                    dispatched_count += 1
                 except Exception:
                     logger.exception(
                         "GreeksBackfillProcessor: handler failed for instrument_id=%r — skipping",
@@ -182,10 +181,10 @@ class GreeksBackfillProcessor:
             asset_group,
             target_date,
             parquet_count,
-            len(rows),
+            dispatched_count,
             skip_count,
         )
-        return rows
+        return dispatched_count
 
 
 def run_backfill(
@@ -217,5 +216,4 @@ def run_backfill(
         risk_free_rate=risk_free_rate,
     )
     processor = GreeksBackfillProcessor(handler=handler, source_bucket=source_bucket)
-    rows = processor.process_date(asset_group=asset_group, target_date=target_date)
-    return len(rows)
+    return processor.process_date(asset_group=asset_group, target_date=target_date)

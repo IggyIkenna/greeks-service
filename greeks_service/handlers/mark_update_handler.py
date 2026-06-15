@@ -20,6 +20,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import cast
 
 from unified_api_contracts import (
     EventOrigin,
@@ -65,20 +66,16 @@ class MarkUpdateHandler:
         self._kernel = kernel or BlackScholesKernel()
         self._risk_free_rate = risk_free_rate
 
-    def handle(self, msg: MarkUpdateMessage) -> LedgerRow:
+    def handle(self, msg: MarkUpdateMessage) -> None:
         """Process one mark_update event: compute greeks + emit PricingLedger row.
 
         Args:
             msg: Decoded MTDS mark_update event.
-
-        Returns:
-            The constructed LedgerRow (also written to GCS via pricing_ledger_writer).
         """
         instrument = self._reader.get(msg.instrument_id)
         greek_result = self._compute_greeks(msg, instrument)
         row = self._build_ledger_row(msg, instrument, greek_result)
         self._writer.write([row], msg.asset_group)
-        return row
 
     def _compute_greeks(
         self,
@@ -226,7 +223,7 @@ def _resolve_asset_class(instrument: object | None) -> AssetClass:
 
 
 def _get_decimal_attr(obj: object, name: str) -> Decimal | None:
-    val = getattr(obj, name, None)
+    val: object = cast(object, getattr(obj, name, None))
     if val is None:
         return None
     try:
@@ -236,14 +233,14 @@ def _get_decimal_attr(obj: object, name: str) -> Decimal | None:
 
 
 def _get_datetime_attr(obj: object, name: str) -> datetime | None:
-    val = getattr(obj, name, None)
+    val: object = cast(object, getattr(obj, name, None))
     if isinstance(val, datetime):
         return val
     return None
 
 
 def _get_str_attr(obj: object, name: str) -> str | None:
-    val = getattr(obj, name, None)
+    val: object = cast(object, getattr(obj, name, None))
     if val is None:
         return None
     s = str(val)

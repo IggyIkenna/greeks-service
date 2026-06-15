@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import time
 
-from unified_trading_library import GCSEventSink, ServiceBootstrap, log_event, setup_events
+from unified_trading_library import BaseModeHandler, ServiceBootstrap, log_event
 
 from greeks_service.config import get_greeks_config
 from greeks_service.handlers.mark_update_handler import MarkUpdateHandler
@@ -33,31 +33,33 @@ _POLL_INTERVAL_SECONDS = 1.0
 _EMPTY_POLL_BACKOFF_SECONDS = 5.0
 
 
-def build_mark_update_operation() -> object:
-    """Build the mark_update polling operation for the live subscription loop.
+class MarkUpdateOperation(BaseModeHandler):
+    """BaseModeHandler for the mark_update live subscription poll loop.
 
-    Returns a callable compatible with ServiceBootstrap operations dict.
+    Builds subscriber / IS reader / pricing-ledger writer on first run(),
+    then polls the Pub/Sub subscription until the process is interrupted.
     """
-    from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import, imports-inside-functions
-        get_message_bus,
-    )
 
-    cfg = get_greeks_config()
+    async def run(self) -> dict[str, object]:  # pragma: no cover
+        """Run the mark_update poll loop (blocking until interrupted)."""
+        from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import, imports-inside-functions
+            get_message_bus,
+        )
 
-    bus = get_message_bus()
-    subscriber = MarkUpdateSubscriber(
-        bus=bus,  # type: ignore[arg-type]
-        subscription=cfg.mark_update_subscription,
-        max_messages=cfg.mark_update_max_messages,
-    )
-    reader = InstrumentReader(
-        base_url=cfg.instruments_service_url,
-        ttl_seconds=cfg.instruments_cache_ttl_seconds,
-    )
-    writer = PricingLedgerWriter(sink_bucket=cfg.pricing_ledger_sink_bucket)
-    handler = MarkUpdateHandler(instrument_reader=reader, pricing_ledger_writer=writer)
+        cfg = get_greeks_config()
+        bus = get_message_bus()
+        subscriber = MarkUpdateSubscriber(
+            bus=bus,  # type: ignore[arg-type]
+            subscription=cfg.mark_update_subscription,
+            max_messages=cfg.mark_update_max_messages,
+        )
+        reader = InstrumentReader(
+            base_url=cfg.instruments_service_url,
+            ttl_seconds=cfg.instruments_cache_ttl_seconds,
+        )
+        writer = PricingLedgerWriter(sink_bucket=cfg.pricing_ledger_sink_bucket)
+        handler = MarkUpdateHandler(instrument_reader=reader, pricing_ledger_writer=writer)
 
-    def _poll_loop() -> None:  # pragma: no cover
         log_event("PROCESSING_STARTED", details={"subscription": cfg.mark_update_subscription})
         consecutive_empty = 0
         while True:
@@ -74,25 +76,12 @@ def build_mark_update_operation() -> object:
                 backoff = min(_EMPTY_POLL_BACKOFF_SECONDS * consecutive_empty, 30.0)
                 time.sleep(backoff)
 
-    return _poll_loop
-
 
 def main_service_cli() -> None:  # pragma: no cover
     """ServiceBootstrap entry point for greeks-service."""
-    cfg = get_greeks_config()
-    sink = GCSEventSink(
-        project_id=cfg.gcp_project_id,
-        bucket=f"{cfg.gcp_project_id}-events",
-        service_name=_SERVICE_NAME,
-    )
-    setup_events(service_name=_SERVICE_NAME, mode="live", sink=sink)
-    log_event(
-        "STARTED",
-        details={"service": _SERVICE_NAME, "phase": "3-live-subscriber"},
-    )
     ServiceBootstrap(
         service_name=_SERVICE_NAME,
-        operations={"mark_update": build_mark_update_operation()},
+        operations={"mark_update": MarkUpdateOperation},
         config=get_greeks_config(),
     ).run()
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import logging
 from datetime import UTC, date, datetime
+from typing import cast
 
 from unified_api_contracts import LedgerRow
 from unified_trading_library import upload_to_storage
@@ -83,25 +84,26 @@ class PricingLedgerWriter:
             raise
 
 
+def _dataframe_to_parquet_bytes(records: list[dict[str, object]]) -> bytes:
+    """Serialise records to parquet bytes via pandas (uses pyarrow engine internally)."""
+    import pandas as pd  # noqa: imports-inside-functions
+
+    df = pd.DataFrame(records)
+    buf = io.BytesIO()
+    df.to_parquet(buf, engine="pyarrow", index=False)
+    buf.seek(0)
+    return buf.read()
+
+
 def _rows_to_parquet(rows: list[object]) -> bytes:
     """Serialize a list of LedgerRow objects to parquet bytes."""
-    import pandas as pd  # noqa: imports-inside-functions
-    import pyarrow as pa  # noqa: imports-inside-functions
-    import pyarrow.parquet as pq  # noqa: imports-inside-functions
-
     records: list[dict[str, object]] = []
     for row in rows:
         if isinstance(row, LedgerRow):
             records.append(_ledger_row_to_dict(row))
         else:
             raise TypeError(f"Expected LedgerRow, got {type(row)}")
-
-    df = pd.DataFrame(records)
-    buf = io.BytesIO()
-    table = pa.Table.from_pandas(df)
-    pq.write_table(table, buf)
-    buf.seek(0)
-    return buf.read()
+    return _dataframe_to_parquet_bytes(records)
 
 
 def _ledger_row_to_dict(row: object) -> dict[str, object]:
@@ -109,7 +111,8 @@ def _ledger_row_to_dict(row: object) -> dict[str, object]:
     if not isinstance(row, LedgerRow):
         raise TypeError(f"Expected LedgerRow, got {type(row)}")
 
-    d = row.model_dump()
+    # model_dump() returns dict[str, Any]; cast to dict[str, object] at the pydantic boundary
+    d: dict[str, object] = cast(dict[str, object], row.model_dump())
     # Convert Decimal to str for parquet compatibility
     decimal_fields = [
         "delta",
@@ -130,13 +133,14 @@ def _ledger_row_to_dict(row: object) -> dict[str, object]:
         "rebase_rate",
     ]
     for field_name in decimal_fields:
-        v = d.get(field_name)
+        v: object = d.get(field_name)
         if v is not None:
             d[field_name] = str(v)
 
     # Convert enums to string values
     for key, val in d.items():
-        if hasattr(val, "value"):
-            d[key] = str(val)
+        val_obj: object = val
+        if hasattr(val_obj, "value"):
+            d[key] = str(val_obj)
 
     return d

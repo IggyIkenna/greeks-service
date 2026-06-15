@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +111,3 @@ class InstrumentReader:
     def clear_cache(self) -> None:
         """Clear all cached entries."""
         self._cache.clear()
-
-
-@dataclass
-class _InstrumentCacheStats:
-    hits: int = field(default=0)
-    misses: int = field(default=0)
-    fetches: int = field(default=0)

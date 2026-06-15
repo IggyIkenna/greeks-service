@@ -5,9 +5,11 @@ Covers:
 - _row_to_message: missing/invalid mark_price → None
 - _row_to_message: missing instrument_id → None
 - _row_to_message: None timestamp → None
-- GreeksBackfillProcessor.process_date: all rows processed, LedgerRows returned
+- GreeksBackfillProcessor.process_date: all rows processed, returns dispatched count (int)
 - GreeksBackfillProcessor.process_date: malformed rows skipped
 - run_backfill: returns correct count
+
+Note: process_date() returns int (dispatched row count), not a list.
 """
 
 from __future__ import annotations
@@ -125,7 +127,7 @@ class TestGreeksBackfillProcessor:
         from unittest.mock import MagicMock
 
         mock_handler = MagicMock()
-        mock_handler.handle.return_value = MagicMock()
+        mock_handler.handle.return_value = None  # handle() returns None
 
         valid_row = _make_valid_row()
         parquet_rows = [valid_row, valid_row]
@@ -139,11 +141,11 @@ class TestGreeksBackfillProcessor:
             result = processor.process_date("cefi", date(2024, 12, 15))
 
         assert mock_handler.handle.call_count == 2
-        assert len(result) == 2
+        assert result == 2  # int: dispatched count
 
     def test_process_date_skips_invalid_rows(self) -> None:
         mock_handler = MagicMock()
-        mock_handler.handle.return_value = MagicMock()
+        mock_handler.handle.return_value = None  # handle() returns None
 
         rows = [
             _make_valid_row(),
@@ -159,7 +161,7 @@ class TestGreeksBackfillProcessor:
             result = processor.process_date("cefi", date(2024, 12, 15))
 
         assert mock_handler.handle.call_count == 1
-        assert len(result) == 1
+        assert result == 1  # int: only the valid row was dispatched
 
     def test_process_date_no_parquets_returns_empty(self) -> None:
         mock_handler = MagicMock()
@@ -168,7 +170,7 @@ class TestGreeksBackfillProcessor:
         with patch("greeks_service.batch.backfill._iter_parquet_paths", return_value=[]):
             result = processor.process_date("cefi", date(2024, 12, 15))
 
-        assert result == []
+        assert result == 0  # int: 0 when no parquets found
         mock_handler.handle.assert_not_called()
 
     def test_process_date_handler_exception_skipped(self) -> None:
@@ -183,7 +185,7 @@ class TestGreeksBackfillProcessor:
         ):
             result = processor.process_date("cefi", date(2024, 12, 15))
 
-        assert result == []
+        assert result == 0  # int: handler failed → 0 dispatched
 
     def test_process_date_parquet_read_error_skipped(self) -> None:
         mock_handler = MagicMock()
@@ -195,7 +197,7 @@ class TestGreeksBackfillProcessor:
         ):
             result = processor.process_date("cefi", date(2024, 12, 15))
 
-        assert result == []
+        assert result == 0  # int: read error → 0 dispatched
         mock_handler.handle.assert_not_called()
 
 
