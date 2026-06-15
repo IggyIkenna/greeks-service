@@ -30,15 +30,30 @@ max-complexity = 10
 "tests/*" = ["F401", "F841", "C901", "E501"]
 "scripts/*" = ["F821", "C901", "E501"]
 
+# Consolidated from the deleted pyrightconfig.json (2026-06-15) — toml is the single home
+# (pyrightconfig.json silently OVERRODE this block; finding #2 of the QG config-SSOT audit).
+# The json suppressed the reportAny/reportUnknown* family — which dodged STEP 5.21 (those rules
+# MUST be "error" or omitted in [tool.basedpyright]). They cannot be relocated as-is, so this block
+# is now the clean strict config (suppressions dropped, not masked). basedpyright surfaces the
+# residual errors as WARN-ONLY today (no BASEDPYRIGHT_MAX_ERRORS ceiling set → STEP 4 warns, passes).
+# RATCHET (P1, plan quality_gates_speed_and_config_ssot_2026_06_09.md): fix the residual strict
+# errors, then set BASEDPYRIGHT_MAX_ERRORS=0 in scripts/quality-gates.sh to enforce the ceiling.
 [tool.basedpyright]
-typeCheckingMode = "strict"
-reportAny = "error"
-reportUnknownMemberType = "error"
-reportUnknownVariableType = "error"
-reportUnknownArgumentType = "error"
-reportUnknownParameterType = "error"
 pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["greeks_service"]
+reportAny = "error"
 reportMissingTypeStubs = false
+venvPath = "../"
+venv = ".venv-workspace"
+extraPaths = [
+    "../unified-trading-library",
+    "../unified-api-contracts",
+    "../unified-cloud-interface",
+    "../market-tick-data-service",
+    "../instruments-service",
+]
+exclude = ["tests", "**/__pycache__", ".venv*", "build", "dist", "node_modules"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
