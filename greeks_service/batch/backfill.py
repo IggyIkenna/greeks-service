@@ -46,9 +46,12 @@ def _dec(raw: object) -> Decimal | None:
     if raw is None:
         return None
     try:
-        return Decimal(str(raw))
+        value = Decimal(str(raw))
     except (InvalidOperation, ValueError, ArithmeticError):
         return None
+    # pandas to_dict yields np.nan for NULL numeric cells → Decimal(str(nan)) == Decimal("NaN")
+    # (NOT an error). Treat as absent, else it corrupts greeks + crashes the `<= 0` ordered compare.
+    return None if value.is_nan() else value
 
 
 def _row_to_message(row: dict[str, object]) -> MarkUpdateMessage | None:
@@ -104,8 +107,12 @@ def _read_parquet_rows(bucket: str, gcs_path: str) -> list[dict[str, object]]:
 
     data = download_from_storage(bucket, gcs_path)
     df = pd.read_parquet(io.BytesIO(data), engine="pyarrow")
-    # to_dict returns list[dict[str, Any]]; cast to list[dict[str, object]] at pandas boundary
-    return cast(list[dict[str, object]], df.to_dict(orient="records"))
+    # pandas to_dict yields np.nan/NaT for NULL cells (NOT None) — map them back to None to match
+    # pyarrow .as_py() semantics, else a null mark_price/rate becomes Decimal("NaN") downstream
+    # (corrupts greeks; crashes the `<= 0` guard). `v != v` is true ONLY for NaN/NaT.
+    records = cast(list[dict[str, object]], df.to_dict(orient="records"))
+    cleaned = [{k: (None if (v is None or v != v) else v) for k, v in rec.items()} for rec in records]
+    return cast(list[dict[str, object]], cleaned)
 
 
 def _iter_parquet_paths(bucket: str, asset_group: str, target_date: date) -> Iterator[str]:

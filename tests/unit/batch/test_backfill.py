@@ -22,6 +22,8 @@ import pytest
 
 from greeks_service.batch.backfill import (
     GreeksBackfillProcessor,
+    _dec,
+    _read_parquet_rows,
     _row_to_message,
     run_backfill,
 )
@@ -228,3 +230,48 @@ class TestRunBackfill:
 
         # No instrument → no greeks → but LedgerRow still emitted (carry passthrough)
         assert count == 2
+
+
+# ── Regression: pandas NaN/NaT coercion (2026-06-15) ──────────────────────────
+# pd.read_parquet().to_dict() yields np.nan/NaT for NULL cells (not None). Without the
+# NaN→None map in _read_parquet_rows + the is_nan() guard in _dec, a null mark_price
+# became Decimal("NaN") (crashed the `<= 0` ordered compare → aborted the backfill) and
+# null optional rates leaked Decimal("NaN") into Black-Scholes. Guards reintroduction.
+
+
+class TestNullCoercionRegression:
+    def test_dec_nan_returns_none(self) -> None:
+        assert _dec(float("nan")) is None
+
+    def test_nan_mark_price_skipped_not_crash(self) -> None:
+        # would raise decimal.InvalidOperation before the fix
+        assert _row_to_message(_make_valid_row(mark_price=float("nan"))) is None
+
+    def test_nan_optional_rates_become_none(self) -> None:
+        msg = _row_to_message(_make_valid_row(funding_rate=float("nan"), staking_apy=float("nan")))
+        assert msg is not None
+        assert msg.funding_rate is None
+        assert msg.staking_apy is None
+
+    def test_read_parquet_rows_maps_nan_and_nat_to_none(self) -> None:
+        import io
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        schema = pa.schema([
+            ("instrument_id", pa.string()),
+            ("mark_price", pa.float64()),
+            ("timestamp_utc", pa.timestamp("us", tz="UTC")),
+        ])
+        table = pa.table(
+            {"instrument_id": ["A", "B"], "mark_price": [1.0, None], "timestamp_utc": [_NOW, None]},
+            schema=schema,
+        )
+        buf = io.BytesIO()
+        pq.write_table(table, buf)
+        with patch("greeks_service.batch.backfill.download_from_storage", return_value=buf.getvalue()):
+            rows = _read_parquet_rows("bucket", "path")
+        assert rows[0]["mark_price"] == 1.0
+        assert rows[1]["mark_price"] is None  # was np.nan
+        assert rows[1]["timestamp_utc"] is None  # was NaT
