@@ -79,7 +79,7 @@ exclude_lines = [
 
 [project]
 name = "greeks-service"
-version = "0.6.0"
+version = "0.7.0"
 description = "Greeks + carry-rate computation service writing to the PricingLedger SSOT"
 readme = "README.md"
 authors = [
