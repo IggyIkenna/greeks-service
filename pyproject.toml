@@ -79,7 +79,7 @@ exclude_lines = [
 
 [project]
 name = "greeks-service"
-version = "0.5.0"
+version = "0.7.0"
 description = "Greeks + carry-rate computation service writing to the PricingLedger SSOT"
 readme = "README.md"
 authors = [
@@ -94,8 +94,8 @@ classifiers = [
 ]
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "unified-trading-library>=0.10.0,<1.0.0",
-    "unified-api-contracts>=0.10.0,<1.0.0",
+    "unified-trading-library>=0.13.0,<1.0.0",
+    "unified-api-contracts>=0.19.0,<1.0.0",
     "fastapi<1.0.0,>=0.115.0",
     "uvicorn[standard]>=0.27.0,<1.0.0",
     "pydantic>=2.12.5,<3.0.0",
