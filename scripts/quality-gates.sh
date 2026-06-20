@@ -13,7 +13,7 @@ PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 PYRIGHT_TIMEOUT=${PYRIGHT_TIMEOUT:-240}
 MAX_DURATION=${MAX_DURATION:-600}
 LOCAL_DEPS=()
-WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)}"
 # PYSEC-2026-161: starlette <1.0.1 — UTL pins starlette<1.0.0; upgrade blocked upstream
 PIP_AUDIT_EXTRA_ARGS="--ignore-vuln PYSEC-2026-161"
 # Broad except Exception: intentional resilience boundaries — see QUALITY_GATE_BYPASS_AUDIT.md §1.1
@@ -26,4 +26,16 @@ BE_EXCLUDE_GLOBS=(
 )
 # CODEX_MAX_VIOLATIONS pinned 2026-06-11 per plans/active/codex_violations_ratchet_to_five_2026_06_10.md (census-honest: 0 current violations; ratchet-down only).
 CODEX_MAX_VIOLATIONS=0
-source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
+BASE_QG_SCRIPT="${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
+if [ ! -f "${BASE_QG_SCRIPT}" ]; then
+    # In-image (CI test-in-image) runs have no PM repo / no git → the base script is absent.
+    # Mirror the fleet-canonical mtds guard: skip the in-image gate pass gracefully rather than
+    # crashing on a `//unified-trading-pm/...` path (the real gate ran locally + at the staging PR).
+    if [ "${CLOUD_BUILD:-false}" = "true" ]; then
+        echo "quality-gates base script unavailable in image; skipping in-image gate pass"
+        exit 0
+    fi
+    echo "Missing base quality-gates script: ${BASE_QG_SCRIPT}" >&2
+    exit 1
+fi
+source "${BASE_QG_SCRIPT}"
