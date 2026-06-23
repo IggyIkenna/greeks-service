@@ -230,12 +230,20 @@ steps:
         docker run --rm --entrypoint python "$$IMG" \
           -c "import ${_PKG_NAME}; print('IMPORT OK')"
         echo "=== Operability probe: RUN --help ==="
+        # The image sets ENTRYPOINT [] + CMD ["uvicorn", ...] (the API server), so a bare
+        # `docker run "$$IMG" --help` execs "--help" as a binary → exit 127 (the
+        # strategy-service@6f696579 trap; this step runs under `set -e` so it FAILS the build
+        # after Step #6 already built the image → the corrected :latest is built but never pushed).
+        # Route --help through the service CLI module via --entrypoint python -m ${_PKG_NAME}
+        # (argparse prints help + exits 0 before ServiceBootstrap STARTED). NB: do NOT set
+        # CLOUD_MOCK_MODE here — it short-circuits to the mock pipeline (a full run) instead of the
+        # cheap --help parse. (cloudbuild --help operability-probe drift fix, 2026-06-23)
         docker run --rm \
+          --entrypoint python \
           -e CLOUD_PROVIDER=local \
-          -e CLOUD_MOCK_MODE=true \
           -e GCP_PROJECT_ID=smoke \
           -e ENVIRONMENT=dev \
-          "$$IMG" --help
+          "$$IMG" -m ${_PKG_NAME} --help
         echo "=== Operability probe PASSED ==="
     waitFor: ["quality-gates"]
 
