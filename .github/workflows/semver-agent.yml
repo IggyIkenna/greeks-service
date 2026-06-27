@@ -148,6 +148,21 @@ jobs:
             esac
           done < <(git log --since="1 hour ago" --format=%s "$SCAN_REF" 2>/dev/null || true)
 
+          # Phase-2 (D13) dynamic repo: with version_source=git-tag the writer mints a TAG, not a
+          # `chore(release)` COMMIT, so the commit-based counters above are all 0 → the breaker would
+          # go inert and the runaway class re-opens (ordering hazard "breaker goes inert"). Re-derive
+          # the rate from `v*` TAG mints in the last hour; the adjacent-pair signature doesn't apply to
+          # tags, so the >=6/hr rate backstop carries the runaway protection. Inert for legacy repos.
+          VERSION_SOURCE="git-tag"
+          if [ "$VERSION_SOURCE" = "git-tag" ]; then
+            git fetch origin --tags --quiet 2>/dev/null || true
+            NOW_EPOCH=$(date +%s)
+            RECENT_BUMPS=$(git for-each-ref --format='%(creatordate:unix)' 'refs/tags/v[0-9]*' 2>/dev/null \
+              | awk -v n="$NOW_EPOCH" '($1 != "" && $1 > n - 3600)' | wc -l | tr -d ' ')
+            RECENT_BUMPS="${RECENT_BUMPS:-0}"
+            echo "Dynamic repo (version_source=git-tag): counted ${RECENT_BUMPS} v* tag mint(s) in the last hour (commit-pair signature N/A)."
+          fi
+
           echo "Pending-bump scan on ${SCAN_REF}: ${RECENT_BUMPS} bump(s)/hr; ${CONSECUTIVE} consecutive at tip; ${REBUMP_PAIRS} adjacent re-bump pair(s)"
 
           # Trip ONLY on a genuine runaway: >=2 adjacent re-bump pairs (>=3 bumps
