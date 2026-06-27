@@ -25,6 +25,8 @@ WORKDIR /app/greeks-service
 COPY pyproject.toml uv.lock README.md ./
 COPY unified-api-contracts/ /app/unified-api-contracts/
 COPY unified-trading-library/ /app/unified-trading-library/
+ARG SETUPTOOLS_SCM_PRETEND_VERSION_FOR_GREEKS_SERVICE
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_GREEKS_SERVICE=${SETUPTOOLS_SCM_PRETEND_VERSION_FOR_GREEKS_SERVICE:-}
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application code (after deps so source edits don't bust the dep layer)
