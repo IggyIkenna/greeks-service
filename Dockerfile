@@ -10,25 +10,36 @@ ARG PROJECT_ID
 # Refreshed by the dependency-update fan-out (update-dependency-version.yml) on base-image
 # republish; cloudbuild may override at build time: --build-arg BASE_IMAGE_DIGEST=sha256:...
 ARG BASE_IMAGE_DIGEST=sha256:ec21883c130cb53d06fbb0a69acd881650b5f575206c673b50ce74633bb618d1
-FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST} AS base
+FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_SYSTEM_PYTHON=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN useradd --create-home --shell /bin/bash appuser
 
-# Install dependencies BEFORE copying source (canonical dep-layer-first pattern).
 WORKDIR /app/greeks-service
-COPY pyproject.toml uv.lock README.md ./
-COPY unified-api-contracts/ /app/unified-api-contracts/
-COPY unified-trading-library/ /app/unified-trading-library/
-RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy application code (after deps so source edits don't bust the dep layer)
+# Copy the whole single-repo build context (tests/scripts/cloudbuild needed by the in-image QG
+# step). Normalized off the prior Pattern-B vendored-sibling form (COPY unified-api-contracts/
+# unified-trading-library/ into the context + `uv sync --frozen` against local path sources) —
+# see plans/active/issues/service_dockerfile_pattern_normalization_2026_06_17.md. Sibling source
+# repos are NOT needed in the build context: UTL+UAC are PRE-INSTALLED in the base image, and
+# --no-sources below ignores [tool.uv.sources] local path deps + resolves fastapi/uvicorn/pydantic
+# straight from PyPI instead of COPYing ../unified-* (which fails a single-repo build context).
 COPY . .
+
+# hatch-vcs (source = "vcs"): .git is .dockerignore'd + COPY . . excludes it, so `uv pip install -e .`
+# cannot run `git describe`. Cloud Build resolves the real tag in extract-version and passes it via
+# --build-arg SETUPTOOLS_SCM_PRETEND_VERSION; export it BEFORE the install else setuptools-scm fails
+# with "unable to detect version for /workspace". Default keeps a local `docker build` working.
+ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
+# Install this service (UTL + UAC pre-installed in the base image; --no-sources skips local path
+# deps and resolves fastapi/uvicorn/pydantic from PyPI instead).
+RUN uv pip install --system --no-sources -e .
 
 RUN chmod +x scripts/quality-gates.sh
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app
@@ -39,8 +50,7 @@ WORKDIR /app/greeks-service
 ENV ENVIRONMENT=production \
     UCS_SKIP_GCSFUSE_CHECK=1 \
     GCS_REGION=asia-northeast1-c \
-    GCS_LOCATION=asia-northeast1 \
-    PATH="/app/greeks-service/.venv/bin:${PATH}"
+    GCS_LOCATION=asia-northeast1
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import greeks_service; print('healthy')" || exit 1
