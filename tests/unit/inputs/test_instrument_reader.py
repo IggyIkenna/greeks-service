@@ -93,11 +93,18 @@ class TestInstrumentReaderCache:
         reader.get("B")
         assert len(calls) == 4  # each fetched twice
 
-    def test_expired_entry_re_fetches(self) -> None:
+    def test_expired_entry_re_fetches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         rec = _FakeRecord("BTC:SPOT:BTC")
         reader, calls = self._reader({"BTC:SPOT:BTC": rec}, ttl=0)
+
+        # Fake monotonic clock — instrument_reader.py calls time.monotonic() as a plain
+        # module-attribute lookup, so patching it lets us deterministically advance time
+        # instead of a real sleep.
+        fake_now = [1_000_000.0]
+        monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
         reader.get("BTC:SPOT:BTC")
-        time.sleep(0.01)  # ensure monotonic time advances
+        fake_now[0] += 0.01  # advance the fake clock, no real sleep
         reader.get("BTC:SPOT:BTC")
         # With ttl=0, every call should fetch since age >= ttl always
         assert len(calls) == 2
