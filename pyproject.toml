@@ -52,9 +52,6 @@ venv = ".venv"
 extraPaths = [
     "../unified-trading-library",
     "../unified-api-contracts",
-    "../unified-cloud-interface",
-    "../market-tick-data-service",
-    "../instruments-service",
 ]
 exclude = ["tests", "**/__pycache__", ".venv*", "build", "dist", "node_modules"]
 
