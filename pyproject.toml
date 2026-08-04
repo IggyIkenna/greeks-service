@@ -113,7 +113,7 @@ classifiers = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "unified-trading-library>=0.72.0,<1.0.0",
-    "unified-api-contracts>=0.91.0,<1.0.0",
+    "unified-api-contracts>=0.92.0,<1.0.0",
     "fastapi>=0.137.0,<1.0.0",
     "uvicorn[standard]>=0.27.0,<1.0.0",
     "pydantic>=2.12.5,<3.0.0",
